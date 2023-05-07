@@ -59,7 +59,7 @@ class PaintMixture:
 
 def CMYKToRGB(c, m, y, k):
     """
-    convert from RGB to CMYK colors
+    convert from CMYK to RGB colors
     """
     r = (255 * (1 - c) * (1 - k))
     g = (255 * (1 - m) * (1 - k))
