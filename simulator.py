@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from threading import Thread
+from random import random, getrandbits
 import time
 
 import mixbox
@@ -9,6 +10,27 @@ TANK_VOLUME = 100  # liters
 TANK_OUTFLOW = 2  # liter / s
 BASIN_VOLUME = 500  # liters
 BASIN_OUTFLOW = 5  # liter / s
+
+# Level constants
+# TODO: choose appropriate values
+TANK_VERY_LOW = 0.1*TANK_VOLUME
+TANK_LOW = 0.2*TANK_VOLUME
+TANK_HIGH = 0.8*TANK_VOLUME
+TANK_VERY_HIGH = 0.9*TANK_VOLUME
+DEFAULT_LEVELS = [TANK_VERY_LOW, TANK_LOW, TANK_HIGH, TANK_VERY_HIGH]
+
+# Default breakdown probabilities per timestep
+# TODO: choose appropriate values
+DEFAULT_BREAK_PROBS = {"level_sensor": 0.0001,
+                       "vl_sensor": 0.0001,
+                       "l_sensor": 0.0001,
+                       "h_sensor": 0.0001,
+                       "vh_sensor": 0.0001,
+                       "outflow_sensor": 0.0001,
+                       "color_sensor": 0.0001,
+                       "valve_actuator": 0.0001,
+                       "fill_actuator": 0.0001,
+                       "flush_actuator": 0.0001}
 
 
 @dataclass
@@ -86,16 +108,18 @@ class PaintTank:
     """
     Class represents a paint tank
     """
-    def __init__(self, name, volume, outflow_rate, paint: PaintMixture, connected_to=None):
+    def __init__(self, name, volume, outflow_rate, paint: PaintMixture, level_refs=None, break_probs=None, connected_to=None):
         """
         Initializes the paint tank with the give parameters
         :param name: given human-friendly name of the tank, e.g. "cyan"
         :param volume: total volume of the tank
         :param outflow_rate: maximum outgoing flow rate when the valve is fully open
         :param paint: initial paint mixture in the tank
-        :param level: initial fill level
+        :param connected_to: whether the tank outflow is connected to another object
         """
         self.name = name
+        if name == "mixer":
+            self.connected_from = []
         self.tank_volume = volume
         self.outflow_rate = outflow_rate
         self.initial_paint = paint
@@ -103,6 +127,36 @@ class PaintTank:
         self.paint = self.initial_paint
         self.valve_ratio = 0  # valve closed
         self.outflow = 0
+        # Initially, previous level is same as initial level
+        self.previous_level = self.paint.volume / self.tank_volume
+        if level_refs is None:
+            self.very_low_ref = DEFAULT_LEVELS[0]
+            self.low_ref = DEFAULT_LEVELS[1]
+            self.high_ref = DEFAULT_LEVELS[2]
+            self.very_high_ref = DEFAULT_LEVELS[3]
+        if break_probs is None:
+            self.break_probabilities = DEFAULT_BREAK_PROBS
+        self.alarms = {}    # Dictionary of alarms that should be displayed, default empty (no alarms)
+        # Possible alarms: key | value1, value2 etc.
+        # "Level references"   | "Empty", "Very low", "Low", "Very high"
+        # "Level conflict"     | "Level conflict: X" where X e {"vh failure", "h failure", "l failure", "vl failure"}
+        # "Inflow"             | "Uncontrolled inflow"
+        # "Stagnation"         | "Stagnation"
+        # "Emptying"           | "Emptying"
+        # "Leak"               | "Leak"
+        self.errors = []    # List of errors that have occurred to the tank, default empty
+        # These represent malfunctions, and can't be directly discovered: It is up to sensors to detect these.
+        # Possible errors:
+        # "level_sensor": continuous level sensor is broken
+        # "vl_sensor": binary very low level sensor is broken
+        # "l_sensor": binary low level sensor is broken
+        # "h_sensor": binary high level sensor is broken
+        # "vh_sensor": binary very high level sensor is broken
+        # "outflow_sensor": outflow sensor is broken
+        # "color_sensor": color sensor is broken
+        # "valve_actuator": valve actuator is broken, valve is stuck and can't be read
+        # "fill_actuator": tank filling actuator is broken, can't fill tank
+        # "flush_actuator": tank flushing actuator is broken, can't flush tank
 
     def add(self, inflow):
         """
@@ -115,39 +169,71 @@ class PaintTank:
         """
         fill up the tank based on the specified initial paint mixture
         """
-        self.paint = self.initial_paint * (level * self.tank_volume / self.initial_paint.volume)
+        # Check for fill error
+        if "fill_actuator" not in self.errors:
+            # Fill tank using default input level=1.0
+            self.paint = self.initial_paint * (level * self.tank_volume / self.initial_paint.volume)
+        # Else, filling actuator is broken so don't fill...
 
     def flush(self):
         """
         flush the tank
         """
-        self.paint = PaintMixture()
+        # Check for flush error
+        if "flush_actuator" not in self.errors:
+            # Flush tank
+            self.paint = PaintMixture()
+        # Else, flushing actuator is broken so don't flush...
 
     def get_level(self):
         """
         get the current level of the tank measured from the bottom
         range: 0.0 (empty) - 1.0 (full)
         """
-        return self.paint.volume / self.tank_volume
+        # Check for level sensor error
+        if "level_sensor" not in self.errors:
+            # Level sensor works fine
+            return self.paint.volume / self.tank_volume
+        else:
+            # Level sensor broken: give random value in valid range
+            return random()
 
     def get_valve(self):
         """
         get the current valve setting:
         range: 0.0 (fully closed) - 1.0 (fully opened)
         """
-        return self.valve_ratio
+        # Check for valve error
+        if "valve_actuator" not in self.errors:
+            # The valve works fine
+            return self.valve_ratio
+        else:
+            # The valve, including its sensor, is broken. Give random value in valid range
+            return random()
 
     def set_valve(self, ratio):
         """
         set the valve, enforces values between 0 and 1
         """
-        self.valve_ratio = min(1, max(0, ratio))
+        # Check for valve error
+        if "valve_actuator" not in self.errors:
+            # The valve works fine
+            self.valve_ratio = min(1, max(0, ratio))
+        # Else, the valve is stuck so do nothing...
+        else:
+            pass
 
     def get_outflow(self):
         """
         get volume of the paint mixture flowing out of the tank
         """
-        return self.outflow
+        # Check for outflow sensor error
+        if "outflow_sensor" not in self.errors:
+            # Outflow sensor works fine
+            return self.outflow
+        else:
+            # Outflow sensor broken: give random value in valid range
+            return self.outflow_rate * random()
 
     def get_color_rgb(self):
         """
@@ -158,21 +244,181 @@ class PaintTank:
             return "#000000"
         # https://github.com/scrtwpns/mixbox/blob/master/python/mixbox.py
         z_mix = [0] * mixbox.LATENT_SIZE
-
-        for i in range(len(z_mix)):
-            z_mix[i] = (self.paint.cyan / volume * CYAN[i] +
-                        self.paint.magenta / volume * MAGENTA[i] +
-                        self.paint.yellow / volume * YELLOW[i] +
-                        self.paint.black / volume * BLACK[i] +
-                        self.paint.white / volume * WHITE[i]
-                        )
+        if "color_sensor" not in self.errors:
+            # The color sensor works fine
+            for i in range(len(z_mix)):
+                z_mix[i] = (self.paint.cyan / volume * CYAN[i] +
+                            self.paint.magenta / volume * MAGENTA[i] +
+                            self.paint.yellow / volume * YELLOW[i] +
+                            self.paint.black / volume * BLACK[i] +
+                            self.paint.white / volume * WHITE[i]
+                            )
+        else:
+            # Color sensor broken: return random color
+            for i in range(len(z_mix)):
+                z_mix[i] = (self.tank_volume*random() / volume * CYAN[i] +
+                            self.tank_volume*random() / volume * MAGENTA[i] +
+                            self.tank_volume*random() / volume * YELLOW[i] +
+                            self.tank_volume*random() / volume * BLACK[i] +
+                            self.tank_volume*random() / volume * WHITE[i]
+                            )
         rgb = mixbox.latent_to_rgb(z_mix)
         return "#%02x%02x%02x" % (rgb[0], rgb[1], rgb[2])
+
+    def get_vl_readout(self):
+        """
+        Read the binary "very low" sensor
+        """
+        # Check for "very low" sensor error
+        if "vl_sensor" not in self.errors:
+            # The "very low" sensor works fine
+            if self.get_level() > self.very_low_ref:
+                return False
+            else:
+                return True
+        else:
+            return bool(getrandbits(1))
+
+    def get_l_readout(self):
+        """
+        Read the binary "low" sensor
+        """
+        # Check for "low" sensor error
+        if "l_sensor" not in self.errors:
+            # The "low" sensor works fine
+            if self.get_level() > self.low_ref:
+                return False
+            else:
+                return True
+        else:
+            return bool(getrandbits(1))
+
+    def get_h_readout(self):
+        """
+        Read the binary "high" sensor
+        """
+        # Check for "high" sensor error
+        if "h_sensor" not in self.errors:
+            # The "high" sensor works fine
+            if self.get_level() > self.high_ref:
+                return True
+            else:
+                return False
+        else:
+            return bool(getrandbits(1))
+
+    def get_vh_readout(self):
+        """
+        Read the binary "very high" sensor
+        """
+        # Check for "very high" sensor error
+        if "h_sensor" not in self.errors:
+            # The "very high" sensor works fine
+            if self.get_level() > self.very_high_ref:
+                return True
+            else:
+                return False
+        else:
+            return bool(getrandbits(1))
+
+    def read_level_sensors(self):
+        """
+        Read all the level-related sensors
+        """
+        return [self.get_level(), self.get_vl_readout(), self.get_l_readout(), self.get_h_readout(), self.get_vh_readout()]
+
+    def update_level_ref_alarms(self, level_readouts):
+        """
+        Check for any alarms related to the current tank level in relation to the reference levels
+        """
+        if level_readouts[4] and self.name == "mixer":
+            # Only the mixer tank has a very high level alarm
+            self.alarms["Level references"] = "Very high"
+        elif level_readouts[2] and not self.name == "mixer":
+            # Color tanks have Low level alarms
+            self.alarms["Level references"] = "Low"
+        elif level_readouts[1]:
+            # Color tanks have Very low level alarms
+            if level_readouts[0] > 0 and not self.name == "mixer":
+                self.alarms["Level references"] = "Very low"
+            # All tanks have Empty alarms
+            else:
+                self.alarms["Level references"] = "Empty"
+        elif "Level references" in self.alarms:
+            # Clear possible previous alarm if the level is within normal bounds
+            del self.alarms["Level references"]
+
+    def update_level_conflict_alarms(self, level_readouts, current_valve):
+        """
+        Check for any alarms that suggest conflicts between sensor readings in relation to the tank level
+        Expects level_readouts = [self.get_level(), self.get_vl_readout(), self.get_l_readout(), self.get_h_readout(), self.get_vh_readout()]
+        """
+        # Stagnation alarm: Valve is open but level does not go down
+        if current_valve > 0 and level_readouts[0] >= self.previous_level:
+            self.alarms["Stagnation"] = "Stagnation"
+        elif "Stagnation" in self.alarms:
+            # Clear previous stagnation alarm if fixed
+            del self.alarms["Stagnation"]
+        # Uncontrolled input of mixer tank
+        if self.name == "mixer":
+            for tankobj in self.connected_from:
+                if "Leak" in tankobj.alarms:
+                    self.alarms["Inflow"] = "Uncontrolled inflow"
+        elif "Inflow" in self.alarms:
+            # Clear previous uncontrolled inflow alarm if fixed
+            del self.alarms["Inflow"]
+        # Own level conflict
+        # Check for level conflicts
+        if level_readouts[0] > self.very_high_ref and not level_readouts[4]:
+            self.alarms["Conflict"] = "Level conflict: vh failure"
+        elif level_readouts[0] > self.high_ref and not level_readouts[3]:
+            self.alarms["Conflict"] = "Level conflict: h failure"
+        elif level_readouts[0] < self.low_ref and not level_readouts[2]:
+            self.alarms["Conflict"] = "Level conflict: l failure"
+        elif level_readouts[0] < self.very_low_ref and not level_readouts[1]:
+            self.alarms["Conflict"] = "Level conflict: vl failure"
+        elif "Conflict" in self.alarms:
+            # Clear previous Level conflict: X alarm if fixed
+            del self.alarms["Conflict"]
+
+    def update_alarms(self):
+        """
+        Read sensors and use readings to update the current alarms
+        """
+        # [self.get_level(), self.get_vl_readout(), self.get_l_readout(), self.get_h_readout(), self.get_vh_readout()]
+        level_readouts = self.read_level_sensors()
+        current_valve = self.get_valve()
+        # Alarms that suggest something is broken
+        # 1. Leak alarm
+        if level_readouts[0] < self.previous_level and current_valve == 0:
+            self.alarms["Leak"] = "Leak"
+        elif "Leak" in self.alarms:
+            # Clear possible previous alarm if the leak has stopped
+            del self.alarms["Leak"]
+        # 2. Conflicting sensor value alarms
+        self.update_level_conflict_alarms(level_readouts, current_valve)
+        # 3. Reference level alarms
+        self.update_level_ref_alarms(level_readouts)
+        # 4. Emptying alarm
+        if current_valve > 0 and level_readouts[0] > 0:
+            self.alarms["Emptying"] = "Emptying"
+        elif "Emptying" in self.alarms:
+            # Clear possible previous alarm if the tank is no longer emptying
+            del self.alarms["Emptying"]
+        # Store level reading for next cycle (leak check)
+        self.previous_level = level_readouts[0]
 
     def simulate_timestep(self, interval):
         """
         update the simulation based on the specified time interval
         """
+        # Randomly risk that something or other breaks down in this timestep
+        for key in self.break_probabilities:
+            # Check if the device breaks
+            if key not in self.errors and self.break_probabilities[key] > random():
+                # Add broken device to list of broken devices
+                self.errors.append(str(key))
+
         # calculate the volume of the paint flowing out in the current time interval
         outgoing_volume = self.valve_ratio * self.outflow_rate * interval
         if outgoing_volume >= self.paint.volume:
@@ -195,6 +441,9 @@ class PaintTank:
         if self.paint.volume > self.tank_volume:
             # keep it at the maximum fill level
             self.paint *= self.tank_volume / self.paint.volume
+
+        # Update the alarms currently being discovered and displayed
+        self.update_alarms()
 
         # return outgoing paint mixture
         return out
@@ -227,6 +476,10 @@ class Simulator(Thread):
                       connected_to=self.mixer),  # white
             self.mixer  # mixing basin
         ]
+        # Connect mixer back to the paint storage tanks (for leak related alarm stuff)
+        for tankobj in self.tanks:
+            if tankobj.name != "mixer":
+                self.mixer.connected_from.append(tankobj)
 
     def get_paint_tank_by_name(self, name):
         """

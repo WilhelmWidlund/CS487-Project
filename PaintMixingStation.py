@@ -7,15 +7,6 @@ from tango.server import Device, attribute, command, run
 class PaintTank(Device):
     """
     Tango device server implementation representing a single paint tank
-    The class PaintTank() from simulator.py has attributes
-        self.name = name
-        self.tank_volume = volume
-        self.outflow_rate = outflow_rate
-        self.initial_paint = paint
-        self.connected_to = connected_to
-        self.paint = self.initial_paint
-        self.valve_ratio = 0  # valve closed
-        self.outflow = 0
     """
 
     def init_device(self):
@@ -50,19 +41,40 @@ class PaintTank(Device):
                       min_value=0.0, max_value=1.0,
                       fget="get_valve", fset="set_valve")
 
-    def set_valve(self, ratio):
-        """
-        set valve attribute
-        :param ratio: 0 to 1
-        """
-        self.tank.set_valve(ratio)
-        pass
-
+    @attribute(dtype=float)
     def get_valve(self):
         """
         get valve attribute (range: 0 to 1)
         """
         return self.tank.get_valve()
+
+    @attribute(dtype=float)
+    def get_vl_readout(self):
+        """
+        Get "very low" binary sensor reading
+        """
+        return self.tank.get_vl_readout()
+
+    @attribute(dtype=float)
+    def get_l_readout(self):
+        """
+        Get "low" binary sensor reading
+        """
+        return self.tank.get_l_readout()
+
+    @attribute(dtype=float)
+    def get_h_readout(self):
+        """
+        Get "high" binary sensor reading
+        """
+        return self.tank.get_h_readout()
+
+    @attribute(dtype=float)
+    def get_vh_readout(self):
+        """
+        Get "very high" binary sensor reading
+        """
+        return self.tank.get_vh_readout()
 
     @attribute(dtype=str)
     def color(self):
@@ -71,12 +83,18 @@ class PaintTank(Device):
         """
         return self.tank.get_color_rgb()
 
+    def set_valve(self, ratio):
+        """
+        set valve attribute
+        :param ratio: 0 to 1
+        """
+        self.tank.set_valve(ratio)
+
     @command(dtype_out=float)
     def Fill(self):
         """
         command to fill up the tank with paint
         """
-        # Fill tank using default input level=1.0
         self.tank.fill()
         return self.tank.get_level()
 
