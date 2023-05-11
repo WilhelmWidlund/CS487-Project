@@ -2,7 +2,7 @@ import sys
 import time
 import signal
 
-from PyQt5.QtWidgets import QApplication, QWidget, QSlider, QHBoxLayout, QVBoxLayout, QLabel, QMainWindow, QPushButton
+from PyQt5.QtWidgets import QApplication, QWidget, QSlider, QHBoxLayout, QVBoxLayout, QLabel, QMainWindow, QPushButton, QTextEdit
 from PyQt5.QtCore import Qt, QThread, QRunnable, pyqtSlot, QThreadPool, QObject, pyqtSignal, QRect
 from PyQt5.QtGui import QPainter, QColor, QPen
 from tango import AttributeProxy, DeviceProxy
@@ -94,6 +94,48 @@ class TankWidget(QWidget):
                   self.width() / 2 - self.VALVE_WIDTH, self.MARGIN_BOTTOM),
             Qt.AlignCenter, "%.1f l/s" % self.flow)
 
+
+class ErrorWindowWidget(QWidget):
+    "Widget to show event and error"
+    
+    def __init__(self,name,width):
+        super().__init__()
+        self.name = name
+        self.setGeometry(0, 0, width, 400)
+        self.setMinimumSize(width, 400)
+        self.layout = QVBoxLayout()
+        #self.threadpool = QThreadPool()
+        #self.worker = TangoBackgroundWorker(self.name)
+        self.logs = [["timeStamp","message"]]
+        self.message =("No more Paint","Motor offline")
+        self.priority = (0,4)
+        
+        self.label_edit = QLabel("Errors logs")
+        #self.label_level.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.label_edit )
+        
+        self.editor = QTextEdit("Hello world")
+        self.editor.setAlignment(Qt.AlignCenter)
+        self.editor.setReadOnly(True)
+        self.editor.setMinimumSize(width, 400)
+        self.layout.addWidget(self.editor)
+        
+        button = QPushButton('delete', self)
+        button.clicked.connect(self.del_logs)
+        self.layout.addWidget(button)
+        
+        self.setLayout(self.layout)
+    
+    def errorEvent(self,event):
+        
+        self.logs.append([time.localtime,self.message[2]])
+        self.editor.setText("Time : {} | {}".format(self.logs[1][0],self.logs[1][1]))
+        
+    def del_logs(self):
+        self.logs.pop()
+        
+        
+        
 
 class PaintTankWidget(QWidget):
     """
@@ -249,6 +291,9 @@ class ColorMixingPlantWindow(QMainWindow):
         hbox.addWidget(self.tanks["yellow"])
         hbox.addWidget(self.tanks["black"])
         hbox.addWidget(self.tanks["white"])
+        
+        self.error_log = ErrorWindowWidget("error", width=150)
+        hbox.addWidget(self.error_log)
 
         vbox.addLayout(hbox)
 
