@@ -1,6 +1,7 @@
 import sys
 import time
 import signal
+import logging
 
 from PyQt5.QtWidgets import QApplication, QWidget, QSlider, QHBoxLayout, QVBoxLayout, QLabel, QMainWindow, QPushButton, QTextEdit
 from PyQt5.QtCore import Qt, QThread, QRunnable, pyqtSlot, QThreadPool, QObject, pyqtSignal, QRect
@@ -337,6 +338,9 @@ class TangoWriteAttributeWorker(QRunnable):
             self.signal.done.emit(data.value)
         except Exception as e:
             print("Failed to write to the Attribute: %s. Is the Device Server running?" % self.path)
+            logging.warning(f"Exception Name: {type(e).__name__}")
+            logging.warning(f"Exception Desc: {e}")
+            print("End of the exception handling.")
 
 
 class TangoRunCommandWorker(QRunnable):

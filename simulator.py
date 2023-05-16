@@ -5,6 +5,11 @@ import time
 
 import mixbox
 
+# TODO: This is the list of all stuff TODO
+# Hors categorie: Figure out how to fix that attribute access error...
+# 1. Everywhere an alarm is added in the update_alarms structure, make it add the new format
+# 2. Implement the level and valve memory things: figure out where to appropriately add values, shift (pop?) etc yeah...
+
 # constants
 TANK_VOLUME = 100  # liters
 TANK_OUTFLOW = 2  # liter / s
@@ -31,6 +36,20 @@ DEFAULT_BREAK_PROBS = {"level_sensor": 0.0001,
                        "valve_actuator": 0.0001,
                        "fill_actuator": 0.0001,
                        "flush_actuator": 0.0001}
+
+# Alarm strings
+DEFAULT_ALARM_STRS = {1: "The tank is leaking",
+                      2: "Uncontrolled inflow to tank",
+                      3: "Level stagnation",
+                      4: "Level conflict: very high",
+                      5: "Level conflict: high",
+                      6: "Level conflict: low",
+                      7: "Level conflict: very low",
+                      8: "The tank is empty",
+                      9: "The tank level is very low",
+                      10: "The tank level is low",
+                      11: "The tank level is very high",
+                      12: "The tank is currently emptying"}
 
 
 @dataclass
@@ -108,7 +127,7 @@ class PaintTank:
     """
     Class represents a paint tank
     """
-    def __init__(self, name, volume, outflow_rate, paint: PaintMixture, level_refs=None, break_probs=None, connected_to=None):
+    def __init__(self, name, volume, outflow_rate, paint: PaintMixture, level_refs=None, break_probs=None, connected_to=None, alarm_strs=None):
         """
         Initializes the paint tank with the give parameters
         :param name: given human-friendly name of the tank, e.g. "cyan"
@@ -127,6 +146,12 @@ class PaintTank:
         self.paint = self.initial_paint
         self.valve_ratio = 0  # valve closed
         self.outflow = 0
+        # TODO: add memory of tank level, 2 minutes long (120 entries)
+        # each entry is [time_x, level_at_time_x]
+        self.level_history = 0
+        # TODO: add memory of valve setting, 2 minutes long (120 entries)
+        # each entry is [time_x, valve_at_time_x]
+        self.valve_history = 0
         # Initially, previous level is same as initial level
         self.previous_level = self.paint.volume / self.tank_volume
         if level_refs is None:
@@ -136,16 +161,26 @@ class PaintTank:
             self.very_high_ref = DEFAULT_LEVELS[3]
         if break_probs is None:
             self.break_probabilities = DEFAULT_BREAK_PROBS
+        if alarm_strs is None:
+            self.alarm_strings = DEFAULT_ALARM_STRS
         self.alarms = {}    # Dictionary of alarms that should be displayed, default empty (no alarms)
-        # Possible alarms: key | value1, value2 etc.
-        # "Level references"   | "Empty", "Very low", "Low", "Very high"
-        # "Level conflict"     | "Level conflict: X" where X e {"vh failure", "h failure", "l failure", "vl failure"}
-        # "Inflow"             | "Uncontrolled inflow"
-        # "Stagnation"         | "Stagnation"
-        # "Emptying"           | "Emptying"
-        # "Leak"               | "Leak"
+        # Possible alarms: key = Priority level (lower = worse) | value = Time of alarm
+        # 1: Leak
+        # 2: Uncontrolled inflow
+        # 3: Level stagnation
+        # 4: level conflict: very high
+        # 5: level conflict: high
+        # 6: level conflict: low
+        # 7: level conflict: very low
+        # 8: empty
+        # 9: very low
+        # 10: low
+        # 11: very high
+        # 12: currently emptying
         self.errors = []    # List of errors that have occurred to the tank, default empty
-        # These represent malfunctions, and can't be directly discovered: It is up to sensors to detect these.
+        # These represent malfunctions, and can't be directly discovered.
+        # The idea is that the simulation knows these, for the purposes of simulating a broken component properly.
+        # The user/GUI does NOT know about these, rather it is up to sensors to detect these.
         # Possible errors:
         # "level_sensor": continuous level sensor is broken
         # "vl_sensor": binary very low level sensor is broken
@@ -355,7 +390,9 @@ class PaintTank:
         """
         # Stagnation alarm: Valve is open but level does not go down
         if current_valve > 0 and level_readouts[0] >= self.previous_level:
-            self.alarms["Stagnation"] = "Stagnation"
+            # TODO: add the time in this manner to all the places where an alarm is added
+            # This should give ["alarm_type" (month, day, hour, minute, second)]
+            self.alarms["Stagnation"] = ["Stagnation", time.localtime()[1:6]]
         elif "Stagnation" in self.alarms:
             # Clear previous stagnation alarm if fixed
             del self.alarms["Stagnation"]
