@@ -106,18 +106,18 @@ class ErrorWindowWidget(QWidget):
         self.layout = QVBoxLayout()
         #self.threadpool = QThreadPool()
         #self.worker = TangoBackgroundWorker(self.name)
-        self.logs = [["timeStamp","message"]]
-        self.message =("No more Paint","Motor offline")
-        self.priority = (0,4)
+        self.logs = [["timeStamp","message"]]+[["...","_________________________"]]*12
         
-        self.label_edit = QLabel("Errors logs")
+        self.label_edit = QLabel(name)
+        self.label_edit.setAlignment(Qt.AlignHCenter)
         #self.label_level.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.label_edit )
         
-        self.editor = QTextEdit("Hello world")
+        self.editor = QTextEdit("")
         self.editor.setAlignment(Qt.AlignCenter)
         self.editor.setReadOnly(True)
         self.editor.setMinimumSize(width, 400)
+        self.update()
         self.layout.addWidget(self.editor)
         
         button = QPushButton('delete', self)
@@ -130,6 +130,17 @@ class ErrorWindowWidget(QWidget):
         
         self.logs.append([time.localtime,self.message[2]])
         self.editor.setText("Time : {} | {}".format(self.logs[1][0],self.logs[1][1]))
+        
+    def update(self):
+        string = """<table style="border: 1px solid;border-spacing: 0;margin-bottom: 5px;border-collapse: collapse;">
+        <tbody style = "display: table-row-group;vertical-align: middle;">"""
+        for log in self.logs:
+            string+="""<tr style = "display: table-row;vertical-align: inherit;">
+            <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 3px 5px 3px 10px;">{}</td>
+            <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 5px 42px;">{}</td></tr>""".format(log[0],log[1])
+            
+        string += " </tr> </tbody> </table>"
+        self.editor.setHtml(string)
         
     def del_logs(self):
         self.logs.pop()
@@ -292,7 +303,7 @@ class ColorMixingPlantWindow(QMainWindow):
         hbox.addWidget(self.tanks["black"])
         hbox.addWidget(self.tanks["white"])
         
-        self.error_log = ErrorWindowWidget("error", width=150)
+        self.error_log = ErrorWindowWidget("Error", width=150)
         hbox.addWidget(self.error_log)
 
         vbox.addLayout(hbox)
