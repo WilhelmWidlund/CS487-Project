@@ -5,11 +5,6 @@ import time
 
 import mixbox
 
-# TODO: This is the list of all stuff TODO
-# Hors categorie: Figure out how to fix that attribute access error...
-# 1. Everywhere an alarm is added in the update_alarms structure, make it add the new format
-# 2. Implement the level and valve memory things: figure out where to appropriately add values, shift (pop?) etc yeah...
-
 # constants
 TANK_VOLUME = 100  # liters
 TANK_OUTFLOW = 2  # liter / s
@@ -17,7 +12,6 @@ BASIN_VOLUME = 500  # liters
 BASIN_OUTFLOW = 5  # liter / s
 
 # Level constants
-# TODO: choose appropriate values
 TANK_VERY_LOW = 0.1*TANK_VOLUME
 TANK_LOW = 0.2*TANK_VOLUME
 TANK_HIGH = 0.8*TANK_VOLUME
@@ -25,7 +19,6 @@ TANK_VERY_HIGH = 0.9*TANK_VOLUME
 DEFAULT_LEVELS = [TANK_VERY_LOW, TANK_LOW, TANK_HIGH, TANK_VERY_HIGH]
 
 # Default breakdown probabilities per timestep
-# TODO: choose appropriate values
 DEFAULT_BREAK_PROBS = {"level_sensor": 0.0001,
                        "vl_sensor": 0.0001,
                        "l_sensor": 0.0001,
@@ -37,8 +30,8 @@ DEFAULT_BREAK_PROBS = {"level_sensor": 0.0001,
                        "fill_actuator": 0.0001,
                        "flush_actuator": 0.0001}
 
-# Alarm strings
-DEFAULT_ALARM_STRS = {1: "The tank is leaking",
+# Alarm definitions: Key = priority level, value = descriptive string
+DEFAULT_ALARM_DEFS = {1: "The tank is leaking",
                       2: "Uncontrolled inflow to tank",
                       3: "Level stagnation",
                       4: "Level conflict: very high",
@@ -50,7 +43,6 @@ DEFAULT_ALARM_STRS = {1: "The tank is leaking",
                       10: "The tank level is low",
                       11: "The tank level is very high",
                       12: "The tank is currently emptying"}
-
 
 @dataclass
 class PaintMixture:
@@ -127,7 +119,7 @@ class PaintTank:
     """
     Class represents a paint tank
     """
-    def __init__(self, name, volume, outflow_rate, paint: PaintMixture, level_refs=None, break_probs=None, connected_to=None, alarm_strs=None):
+    def __init__(self, name, volume, outflow_rate, paint: PaintMixture, level_refs=None, break_probs=None, connected_to=None, alarm_defs=None):
         """
         Initializes the paint tank with the give parameters
         :param name: given human-friendly name of the tank, e.g. "cyan"
@@ -146,14 +138,13 @@ class PaintTank:
         self.paint = self.initial_paint
         self.valve_ratio = 0  # valve closed
         self.outflow = 0
-        # TODO: add memory of tank level, 2 minutes long (120 entries)
-        # each entry is [time_x, level_at_time_x]
-        self.level_history = 0
-        # TODO: add memory of valve setting, 2 minutes long (120 entries)
-        # each entry is [time_x, valve_at_time_x]
-        self.valve_history = 0
-        # Initially, previous level is same as initial level
-        self.previous_level = self.paint.volume / self.tank_volume
+        # Storage vectors, each element is (time_x, value_at_time_x). Index -1 holds the most recent value
+        # Format for time_x is = (month, day, hour, minute, second)
+        # Initialized with time_x = False to signify that this storage space is not yet used.
+        self.level_history = [(False, 0)] * 120
+        self.valve_history = [(False, 0)] * 120
+        # Initially, set latest level same as initial level for the first timestep alarm check not to crash
+        self.level_history[-1] = (time.localtime()[1:6], self.paint.volume / self.tank_volume)
         if level_refs is None:
             self.very_low_ref = DEFAULT_LEVELS[0]
             self.low_ref = DEFAULT_LEVELS[1]
@@ -161,22 +152,12 @@ class PaintTank:
             self.very_high_ref = DEFAULT_LEVELS[3]
         if break_probs is None:
             self.break_probabilities = DEFAULT_BREAK_PROBS
-        if alarm_strs is None:
-            self.alarm_strings = DEFAULT_ALARM_STRS
+        if alarm_defs is None:
+            self.alarm_definitions = DEFAULT_ALARM_DEFS  # Default dictionary of possible alarms
         self.alarms = {}    # Dictionary of alarms that should be displayed, default empty (no alarms)
-        # Possible alarms: key = Priority level (lower = worse) | value = Time of alarm
-        # 1: Leak
-        # 2: Uncontrolled inflow
-        # 3: Level stagnation
-        # 4: level conflict: very high
-        # 5: level conflict: high
-        # 6: level conflict: low
-        # 7: level conflict: very low
-        # 8: empty
-        # 9: very low
-        # 10: low
-        # 11: very high
-        # 12: currently emptying
+        # key = Priority level, lower = worse
+        # value = Time of alarm, format (month, day, hour, minute, second)
+        # Possible default alarms can be seen in DEFAULT_ALARM_DEFS, at line 34
         self.errors = []    # List of errors that have occurred to the tank, default empty
         # These represent malfunctions, and can't be directly discovered.
         # The idea is that the simulation knows these, for the purposes of simulating a broken component properly.
@@ -360,90 +341,147 @@ class PaintTank:
         """
         Read all the level-related sensors
         """
-        return [self.get_level(), self.get_vl_readout(), self.get_l_readout(), self.get_h_readout(), self.get_vh_readout()]
+        return [self.get_level(), self.get_vl_readout(), self.get_l_readout(),
+                self.get_h_readout(), self.get_vh_readout()]
 
     def update_level_ref_alarms(self, level_readouts):
         """
-        Check for any alarms related to the current tank level in relation to the reference levels
+        Update any alarms related to the current tank level in relation to the reference levels.
+        Expects self.alarm_definitions = DEFAULT_ALARM_DEFS
         """
+        # Check for very high level alarm
+        # Only the mixer tank can have it
         if level_readouts[4] and self.name == "mixer":
-            # Only the mixer tank has a very high level alarm
-            self.alarms["Level references"] = "Very high"
-        elif level_readouts[2] and not self.name == "mixer":
-            # Color tanks have Low level alarms
-            self.alarms["Level references"] = "Low"
-        elif level_readouts[1]:
-            # Color tanks have Very low level alarms
-            if level_readouts[0] > 0 and not self.name == "mixer":
-                self.alarms["Level references"] = "Very low"
-            # All tanks have Empty alarms
-            else:
-                self.alarms["Level references"] = "Empty"
-        elif "Level references" in self.alarms:
-            # Clear possible previous alarm if the level is within normal bounds
-            del self.alarms["Level references"]
+            if 11 not in self.alarms:
+                self.alarms[11] = time.localtime()[1:6]
+            # If the level is very high, it can't be below any of the other thresholds
+            return
+        elif 11 in self.alarms and self.name == "mixer":
+            # Clear previous very high level alarm
+            del self.alarms[11]
+        # Check for Empty, very low and low level alarms
+        # Begins from empty and works upward, as an alarm for a lower level precludes any alarms for higher levels
+        # Check for Empty alarms
+        if level_readouts[0] == 0:
+            if 8 not in self.alarms:
+                self.alarms[8] = time.localtime()[1:6]
+            return
+        elif 8 in self.alarms:
+            # Clear previous empty alarm
+            del self.alarms[8]
+        # Check for very low level alarms
+        # Only color tanks can have it
+        if level_readouts[1] and not self.name == "mixer":
+            if 9 not in self.alarms:
+                self.alarms[9] = time.localtime()[1:6]
+            return
+        elif 9 in self.alarms and not self.name == "mixer":
+            # Clear previous very low level alarm
+            del self.alarms[9]
+        # Check for low level alarms
+        # Only color tanks can have it
+        if level_readouts[2] and not self.name == "mixer":
+            if 10 not in self.alarms:
+                self.alarms[10] = time.localtime()[1:6]
+            return
+        elif 10 in self.alarms and not self.name == "mixer":
+            # Clear previous low level alarm
+            del self.alarms[10]
 
     def update_level_conflict_alarms(self, level_readouts, current_valve):
         """
-        Check for any alarms that suggest conflicts between sensor readings in relation to the tank level
-        Expects level_readouts = [self.get_level(), self.get_vl_readout(), self.get_l_readout(), self.get_h_readout(), self.get_vh_readout()]
+        Update any alarms that suggest conflicts between sensor readings in relation to the tank level.
+        Expects level_readouts = [self.get_level(), self.get_vl_readout(), self.get_l_readout(),
+                                  self.get_h_readout(), self.get_vh_readout()]
+        Expects self.alarm_definitions = DEFAULT_ALARM_DEFS
         """
         # Stagnation alarm: Valve is open but level does not go down
-        if current_valve > 0 and level_readouts[0] >= self.previous_level:
-            # TODO: add the time in this manner to all the places where an alarm is added
-            # This should give ["alarm_type" (month, day, hour, minute, second)]
-            self.alarms["Stagnation"] = ["Stagnation", time.localtime()[1:6]]
-        elif "Stagnation" in self.alarms:
+        if current_valve > 0 and level_readouts[0] >= self.level_history[0][1]:
+            if 3 not in self.alarms:
+                self.alarms[3] = time.localtime()[1:6]
+        elif 3 in self.alarms:
             # Clear previous stagnation alarm if fixed
-            del self.alarms["Stagnation"]
-        # Uncontrolled input of mixer tank
+            del self.alarms[3]
+        # Uncontrolled input of mixer tank: direct effect of leak alarm in connected tank
         if self.name == "mixer":
-            for tankobj in self.connected_from:
-                if "Leak" in tankobj.alarms:
-                    self.alarms["Inflow"] = "Uncontrolled inflow"
-        elif "Inflow" in self.alarms:
-            # Clear previous uncontrolled inflow alarm if fixed
-            del self.alarms["Inflow"]
-        # Own level conflict
-        # Check for level conflicts
+            for tank_obj in self.connected_from:
+                if 1 in tank_obj.alarms and 2 not in self.alarms:
+                    self.alarms[2] = time.localtime()[1:6]
+                elif 2 in self.alarms:
+                    # Clear previous uncontrolled inflow alarm if fixed
+                    del self.alarms[2]
+        # Check for own level conflicts
         if level_readouts[0] > self.very_high_ref and not level_readouts[4]:
-            self.alarms["Conflict"] = "Level conflict: vh failure"
+            # Level conflict: very high level alarm
+            if 4 not in self.alarms:
+                self.alarms[4] = time.localtime()[1:6]
+        elif 4 in self.alarms:
+            # Clear previous Level conflict alarm
+            del self.alarms[4]
         elif level_readouts[0] > self.high_ref and not level_readouts[3]:
-            self.alarms["Conflict"] = "Level conflict: h failure"
+            # Level conflict: high level alarm
+            if 5 not in self.alarms:
+                self.alarms[5] = time.localtime()[1:6]
+        elif 5 in self.alarms:
+            # Clear previous Level conflict alarm
+            del self.alarms[5]
         elif level_readouts[0] < self.low_ref and not level_readouts[2]:
-            self.alarms["Conflict"] = "Level conflict: l failure"
+            # Level conflict: low level alarm
+            if 6 not in self.alarms:
+                self.alarms[6] = time.localtime()[1:6]
+        elif 6 in self.alarms:
+            # Clear previous Level conflict alarm
+            del self.alarms[6]
         elif level_readouts[0] < self.very_low_ref and not level_readouts[1]:
-            self.alarms["Conflict"] = "Level conflict: vl failure"
-        elif "Conflict" in self.alarms:
-            # Clear previous Level conflict: X alarm if fixed
-            del self.alarms["Conflict"]
+            # Level conflict: very low level alarm
+            if 7 not in self.alarms:
+                self.alarms[7] = time.localtime()[1:6]
+        elif 7 in self.alarms:
+            # Clear previous Level conflict alarm
+            del self.alarms[7]
 
     def update_alarms(self):
         """
-        Read sensors and use readings to update the current alarms
+        Read sensors and use readings to update the current alarms.
+
+        * Add them to self.alarms if the condition exists, and they are not yet added
+        * Do nothing if the condition exists and the alarm has already been added
+        * Clear them if they are in self.alarms and the condition no longer exists
+
+        Expects self.alarm_definitions = DEFAULT_ALARM_DEFS
         """
         # [self.get_level(), self.get_vl_readout(), self.get_l_readout(), self.get_h_readout(), self.get_vh_readout()]
         level_readouts = self.read_level_sensors()
         current_valve = self.get_valve()
         # Alarms that suggest something is broken
         # 1. Leak alarm
-        if level_readouts[0] < self.previous_level and current_valve == 0:
-            self.alarms["Leak"] = "Leak"
-        elif "Leak" in self.alarms:
+        if level_readouts[0] < self.level_history[0][1] and current_valve == 0:
+            if 1 not in self.alarms:
+                self.alarms[1] = time.localtime()[1:6]
+        elif 1 in self.alarms:
             # Clear possible previous alarm if the leak has stopped
-            del self.alarms["Leak"]
+            del self.alarms[1]
         # 2. Conflicting sensor value alarms
         self.update_level_conflict_alarms(level_readouts, current_valve)
         # 3. Reference level alarms
         self.update_level_ref_alarms(level_readouts)
         # 4. Emptying alarm
         if current_valve > 0 and level_readouts[0] > 0:
-            self.alarms["Emptying"] = "Emptying"
-        elif "Emptying" in self.alarms:
+            if 12 not in self.alarms:
+                self.alarms[12] = time.localtime()[1:6]
+        elif 12 in self.alarms:
             # Clear possible previous alarm if the tank is no longer emptying
-            del self.alarms["Emptying"]
-        # Store level reading for next cycle (leak check)
-        self.previous_level = level_readouts[0]
+            del self.alarms[12]
+
+    def update_storage(self):
+        """
+        Update the data storage variables for the current cycle:
+        Shift the lists, discarding the oldest entries and inserting the current time and values
+        """
+        self.level_history.pop(0)
+        self.level_history.append((time.localtime()[1:6], self.get_level()))
+        self.valve_history.pop(0)
+        self.valve_history.append((time.localtime()[1:6], self.get_valve()))
 
     def simulate_timestep(self, interval):
         """
@@ -482,6 +520,9 @@ class PaintTank:
         # Update the alarms currently being discovered and displayed
         self.update_alarms()
 
+        # Store current level and valve values
+        self.update_storage()
+
         # return outgoing paint mixture
         return out
 
@@ -513,10 +554,10 @@ class Simulator(Thread):
                       connected_to=self.mixer),  # white
             self.mixer  # mixing basin
         ]
-        # Connect mixer back to the paint storage tanks (for leak related alarm stuff)
-        for tankobj in self.tanks:
-            if tankobj.name != "mixer":
-                self.mixer.connected_from.append(tankobj)
+        # Connect mixer back to the paint storage tanks (for uncontrolled inflow alarm check)
+        for tank_obj in self.tanks:
+            if tank_obj.name != "mixer":
+                self.mixer.connected_from.append(tank_obj)
 
     def get_paint_tank_by_name(self, name):
         """
