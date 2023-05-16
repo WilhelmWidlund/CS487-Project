@@ -36,10 +36,19 @@ class PaintTank(Device):
         """
         return self.tank.get_outflow()
 
-    valve = attribute(label="valve", dtype=float,
+    valve = attribute(name = "valve", label="valve", dtype=float,
                       access=AttrWriteType.READ_WRITE,
                       min_value=0.0, max_value=1.0,
                       fget="get_valve", fset="set_valve")
+
+    @attribute(dtype=float)
+    def set_valve(self, ratio):
+        """
+        set valve attribute
+        :param ratio: 0 to 1
+        """
+        self.tank.set_valve(ratio)
+        return self.tank.get_valve()
 
     @attribute(dtype=float)
     def get_valve(self):
@@ -82,13 +91,6 @@ class PaintTank(Device):
         get color attribute (hex string)
         """
         return self.tank.get_color_rgb()
-
-    def set_valve(self, ratio):
-        """
-        set valve attribute
-        :param ratio: 0 to 1
-        """
-        self.tank.set_valve(ratio)
 
     @command(dtype_out=float)
     def Fill(self):
