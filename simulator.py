@@ -343,8 +343,32 @@ class PaintTank:
         """
         text_alarm = ""
         for keys in self.alarms:
-            text_alarm = text_alarm+ "{}:{}:{}:{}:{}/".format(self.alarms[keys][0],self.alarms[keys][1],self.alarms[keys][2],self.alarms[keys][3],self.alarms[keys][4])+self.name+"/"+self.DEFAULT_ALARM_DEFS[keys]+"|"
+            text_alarm = text_alarm+ "{}:{}:{}:{}:{}/".format(self.alarms[keys][0],self.alarms[keys][1],self.alarms[keys][2],self.alarms[keys][3],self.alarms[keys][4])+self.name+"/"+self.alarm_definitions[keys]+"|"
         return text_alarm
+
+    def get_level_history(self):
+        """
+        Read the level array
+        """
+        return self.arrange_history_array(self.level_history)
+
+    def get_valve_history(self):
+        """
+        Read the valve array
+        """
+        return self.arrange_history_array(self.valve_history)
+
+    def arrange_history_array(self, array):
+        """
+        Format the data in a history array for returning with the corresponding get_x_history() function
+        """
+        text_history = ""
+        for entry in array:
+            if entry[0]:
+                text_history = text_history + "{}:{}:{}:{}:{}/".format(entry[0][0], entry[0][1],
+                                                                       entry[0][2], entry[0][3],
+                                                                       entry[0][4]) + self.name + "/{}".format(entry[1]) + "|"
+        return text_history
 
     def read_level_sensors(self):
         """
