@@ -16,6 +16,7 @@ TANGO_ATTRIBUTE_LEVEL = "level"
 TANGO_ATTRIBUTE_VALVE = "valve"
 TANGO_ATTRIBUTE_FLOW = "flow"
 TANGO_ATTRIBUTE_COLOR = "color"
+TANGO_ATTRIBUTE_ALARMS = "alarms"
 TANGO_COMMAND_FILL = "Fill"
 TANGO_COMMAND_FLUSH = "Flush"
 
@@ -409,6 +410,7 @@ class TangoBackgroundWorker(QThread):
         self.level = WorkerSignal()
         self.flow = WorkerSignal()
         self.color = WorkerSignal()
+        self.alarms = WorkerSignal()
 
     def run(self):
         """
@@ -420,6 +422,7 @@ class TangoBackgroundWorker(QThread):
             level = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_LEVEL))
             flow = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_FLOW))
             color = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_COLOR))
+            alarms = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_ALARMS))
         except Exception as e:
             print("Error creating AttributeProxy for %s" % self.name)
             return
@@ -430,10 +433,15 @@ class TangoBackgroundWorker(QThread):
                 data_color = color.read()
                 data_level = level.read()
                 data_flow = flow.read()
+                data_alarms = alarms.read()
                 # signal to UI
                 self.color.done.emit(data_color.value)
                 self.level.done.emit(data_level.value)
                 self.flow.done.emit(data_flow.value)
+                self.alarms.done.emit(data_alarms.value)
+                # TODO: Use these prints to check/verify what is actually in alarms...
+                print("Data alarms value:")
+                print(data_alarms.value)
             except Exception as e:
                 print("Error reading from the device: %s" % e)
 

@@ -337,6 +337,12 @@ class PaintTank:
         else:
             return bool(getrandbits(1))
 
+    def get_alarms(self):
+        """
+        Read the alarms dictionary
+        """
+        return self.alarms
+
     def read_level_sensors(self):
         """
         Read all the level-related sensors
