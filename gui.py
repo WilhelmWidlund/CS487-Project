@@ -16,6 +16,7 @@ TANGO_ATTRIBUTE_LEVEL = "level"
 TANGO_ATTRIBUTE_VALVE = "valve"
 TANGO_ATTRIBUTE_FLOW = "flow"
 TANGO_ATTRIBUTE_COLOR = "color"
+TANGO_ATTRIBUTE_ALARMS = "alarms"
 TANGO_COMMAND_FILL = "Fill"
 TANGO_COMMAND_FLUSH = "Flush"
 
@@ -98,6 +99,7 @@ class TankWidget(QWidget):
 
 class ErrorWindowWidget(QWidget):
     "Widget to show event and error"
+   
     
     def __init__(self,name,width):
         super().__init__()
@@ -105,13 +107,11 @@ class ErrorWindowWidget(QWidget):
         self.setGeometry(0, 0, width, 400)
         self.setMinimumSize(width, 400)
         self.layout = QVBoxLayout()
-        #self.threadpool = QThreadPool()
-        #self.worker = TangoBackgroundWorker(self.name)
-        self.logs = [["timeStamp","message"]]+[["...","_________________________"]]*12
+        self.worker = None
+        self.logs = [["TimeStamp","TANK","MESSAGE"]]
         
         self.label_edit = QLabel(name)
         self.label_edit.setAlignment(Qt.AlignHCenter)
-        #self.label_level.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.label_edit )
         
         self.editor = QTextEdit("")
@@ -121,30 +121,59 @@ class ErrorWindowWidget(QWidget):
         self.update()
         self.layout.addWidget(self.editor)
         
-        button = QPushButton('delete', self)
-        button.clicked.connect(self.del_logs)
+        button = QPushButton('Update', self)
+        button.clicked.connect(self.update)
         self.layout.addWidget(button)
         
         self.setLayout(self.layout)
-    
-    def errorEvent(self,event):
         
-        self.logs.append([time.localtime,self.message[2]])
-        self.editor.setText("Time : {} | {}".format(self.logs[1][0],self.logs[1][1]))
+        
         
     def update(self):
-        string = """<table style="border: 1px solid;border-spacing: 0;margin-bottom: 5px;border-collapse: collapse;">
+        
+        string = """<table style="width : 100%;border: 1px solid;border-spacing: 0;margin-bottom: 5px;border-collapse: collapse;">
         <tbody style = "display: table-row-group;vertical-align: middle;">"""
         for log in self.logs:
-            string+="""<tr style = "display: table-row;vertical-align: inherit;">
+            string+="""<tr style = "display: table-row;vertical-align: inherit;width : 100%;">
             <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 3px 5px 3px 10px;">{}</td>
-            <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 5px 42px;">{}</td></tr>""".format(log[0],log[1])
+            <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 3px 5px 3px 10px;">{}</td>
+            <td style = "width :100%;border: 1px solid;display: table-cell;padding: 5px 40%;">{}</td></tr>""".format(log[0],log[1],log[2])
             
         string += " </tr> </tbody> </table>"
         self.editor.setHtml(string)
         
-    def del_logs(self):
-        self.logs.pop()
+    def setWorker(self,worker):
+        self.worker = worker
+        self.worker.alarm.done.connect(self.set_log_cyan)
+        
+        
+        
+    
+    @pyqtSlot()
+    def set_log_cyan(self,alarms):
+        array_alarm = alarms.split('|')
+        for text in array_alarm:
+            alarm = text.split('/')
+            self.logs.append([alarm[1],alarm[2],alarm[3]])
+    
+        self.update()  
+        
+    @pyqtSlot()
+    def set_log_yellow(self,alarms):
+        for keys, value in alarms:
+                self.logs.append(["{}:{}:{}:{}:{}".format(value[0],value[1],value[2],value[3],value[4],value[5])
+                ,str(tank_i),DEFAULT_ALARM_DEFS[keys]])
+    
+        self.update()  
+        
+    @pyqtSlot()
+    def set_log_magenta(self,alarms):
+        for keys, value in alarms:
+                self.logs.append(["{}:{}:{}:{}:{}".format(value[0],value[1],value[2],value[3],value[4],value[5])
+                ,str(tank_i),DEFAULT_ALARM_DEFS[keys]])
+    
+        self.update()  
+    
         
         
         
@@ -270,6 +299,8 @@ class PaintTankWidget(QWidget):
         worker = TangoRunCommandWorker(self.name, TANGO_COMMAND_FLUSH)
         worker.signal.done.connect(self.setLevel)
         self.threadpool.start(worker)
+        
+    
 
 
 class ColorMixingPlantWindow(QMainWindow):
@@ -305,6 +336,8 @@ class ColorMixingPlantWindow(QMainWindow):
         hbox.addWidget(self.tanks["white"])
         
         self.error_log = ErrorWindowWidget("Error", width=150)
+        self.error_log.setWorker(self.tanks["cyan"].worker)
+        
         hbox.addWidget(self.error_log)
 
         vbox.addLayout(hbox)
@@ -409,6 +442,7 @@ class TangoBackgroundWorker(QThread):
         self.level = WorkerSignal()
         self.flow = WorkerSignal()
         self.color = WorkerSignal()
+        self.alarm = WorkerSignal()
 
     def run(self):
         """
@@ -420,6 +454,7 @@ class TangoBackgroundWorker(QThread):
             level = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_LEVEL))
             flow = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_FLOW))
             color = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_COLOR))
+            alarm = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_ALARMS))
         except Exception as e:
             print("Error creating AttributeProxy for %s" % self.name)
             return
@@ -430,10 +465,12 @@ class TangoBackgroundWorker(QThread):
                 data_color = color.read()
                 data_level = level.read()
                 data_flow = flow.read()
+                data_al = alarm.read()
                 # signal to UI
                 self.color.done.emit(data_color.value)
                 self.level.done.emit(data_level.value)
                 self.flow.done.emit(data_flow.value)
+                self.alarm.done.emit(data_al)
             except Exception as e:
                 print("Error reading from the device: %s" % e)
 

@@ -20,6 +20,7 @@ class PaintTank(Device):
         if not self.tank:
             raise Exception(
                 "Error: Can't find matching paint tank in the simulator with given name = %s" % self.get_name())
+            
 
     @attribute(dtype=float)
     def level(self):
@@ -28,6 +29,16 @@ class PaintTank(Device):
         range: 0 to 1
         """
         return self.tank.get_level()
+    
+    @attribute(dtype = str)
+    def alarms(self):
+        """
+        get alarms attribute
+        range: see simulator
+        """
+        return "0"
+        
+
 
     @attribute(dtype=float)
     def flow(self):

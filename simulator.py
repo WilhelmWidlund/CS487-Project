@@ -238,7 +238,15 @@ class PaintTank:
         # Else, the valve is stuck so do nothing...
         else:
             pass
-
+        
+    def get_alarm(self):
+        text_alarm = ""
+        print(self.alarms)
+        for keys in self.alarms:
+            text_alarm =text_alarm+"{}:{}:{}:{}:{}/".format(self.alarms[keys][0],self.alarms[keys][1],self.alarms[keys][2],self.alarms[keys][3],self.alarms[keys][4],self.alarms[keys][5])+self.name+"/"+self.DEFAULT_ALARM_DEFS[keys]+"|"
+        return text_alarm
+    
+    
     def get_outflow(self):
         """
         get volume of the paint mixture flowing out of the tank
