@@ -367,30 +367,47 @@ class displayWindow(QMainWindow):
         self.setWindowTitle("Color Mixing Plant Simulator tank"+tank.name)
         self.setMinimumSize(1000, 900)
         self._new_window = QWidget()
+        self.taille = 120
         self.setCentralWidget(self._new_window)
-        self.
-        self.y = [0]*100
+        self.y_level = [0]*self.taille
+        self.y_valve = [0]*self.taille
+        self.labels = None
         
         
-        data = [['0']*100,self.y]
+        
+        data = [['0']*self.taille,self.y_level]
         # Getting the Model
-        self.model = CustomTableModel(data)
+        self.model_level = CustomTableModel(data)
+        self.model_valve = CustomTableModel(data)
         
         #creating the table
-        self.table_view = QTableView()
-        self.table_view.setModel(self.model)
+        self.table_view_level = QTableView()
+        self.table_view_level.setModel(self.model_level)
+        
+        self.table_view_valve = QTableView()
+        self.table_view_valve.setModel(self.model_valve)
+        
         
         
 
         # Creating plotwidget
-        self.data_line = None
-        self.labels = None
-        self.chart = self.creat_plot(data)
+        self.data_line_level = None
+        self.data_line_valve= None
+        
+        self.chart_level = self.creat_plot(data,True)
+        
+        self.chart_valve = self.creat_plot(data,False)
 
         
         # QTableView Headers
-        self.horizontal_header = self.table_view.horizontalHeader()
-        self.vertical_header = self.table_view.verticalHeader()
+        self.horizontal_header = self.table_view_level.horizontalHeader()
+        self.vertical_header = self.table_view_level.verticalHeader()
+        self.horizontal_header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.vertical_header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.horizontal_header.setStretchLastSection(True)
+        
+        self.horizontal_header = self.table_view_valve.horizontalHeader()
+        self.vertical_header = self.table_view_valve.verticalHeader()
         self.horizontal_header.setSectionResizeMode(QHeaderView.ResizeToContents)
         self.vertical_header.setSectionResizeMode(QHeaderView.ResizeToContents)
         self.horizontal_header.setStretchLastSection(True)
@@ -400,44 +417,55 @@ class displayWindow(QMainWindow):
         size = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         
         ## Left layout
-        size.setHorizontalStretch(3)
-        self.table_view.setSizePolicy(size)
-        self.main_layout.addWidget(self.table_view)
+        vbox = QVBoxLayout()
+        vbox.addWidget(self.table_view_level)
+        vbox.addWidget(self.table_view_valve)
+        self.main_layout.addLayout(vbox)
         
         ## Right Layout
-        size.setHorizontalStretch(3)
-        self.chart.setSizePolicy(size)
-        self.main_layout.addWidget(self.chart)
-        
+        vbox = QVBoxLayout()
+        vbox.sizeHint
+        vbox.addWidget(self.chart_level)
+        vbox.addWidget(self.chart_valve)
+        self.main_layout.addLayout(vbox)
         
         self.error_log = ErrorWindowWidget("Error", 600,tank)
+        vbox = QVBoxLayout()
+        vbox.addWidget(self.error_log)
+        self.main_layout.addLayout(vbox)
         
-        self.main_layout.addWidget(self.error_log)
         
         # Set the layout to the QWidget
         self._new_window.setLayout(self.main_layout)
         
-        tank.worker.level_history.done.connect(self.update_plot_data)
+        tank.worker.level_history.done.connect(self.update_plot_data_level)
+        tank.worker.valve_history.done.connect(self.update_plot_data_valve)
         
         
-    def creat_plot(self,data):
+    def creat_plot(self,data,level):
         graphWidget = pg.PlotWidget()
         #Add Background colour to white
         graphWidget.setBackground('w')
         # Add Title
-        graphWidget.setTitle("Level", color="b", size="30pt")
-         # Add Axis Labels
         styles = {"color": "#f00", "font-size": "20px"}
-        graphWidget.setLabel("left", "Level", **styles)
+        if level:
+            graphWidget.setTitle("Level", color="b", size="20pt")
+            graphWidget.setLabel("left", "Level[\%]", **styles)
+        else:
+            graphWidget.setTitle("Valve", color="b", size="20pt")
+            graphWidget.setLabel("left", "valve[\%]", **styles)
+            
+         # Add Axis Labels
+        
         graphWidget.setLabel("bottom", "Timestamps", **styles)
         
-        self.labels = [
+        labels = [
             # Generate a list of tuples (x_value, x_label)
             (t, data[0][t])
             for t in range(len(data[0]))
         ]
 
-        graphWidget.getAxis('bottom').setTicks([self.labels])
+        graphWidget.getAxis('bottom').setTicks([labels])
         #Add legend
         graphWidget.addLegend()
         #Add grid
@@ -446,36 +474,82 @@ class displayWindow(QMainWindow):
         graphWidget.setXRange(-5, 105, padding=0)
         graphWidget.setYRange(-5, 105, padding=0)
 
-        self.data_line = self.plot(graphWidget,data[0], data[1], "Level", 'b',self.labels)
-        self.plot(graphWidget,data[0], [80]*100, "High_Level", 'g',self.labels)
-        self.plot(graphWidget,data[0], [20]*100, "low_level", 'r',self.labels)
+        if level:
+            self.data_line_level = self.plot(graphWidget,data[0], data[1], "Level", 'b')
+            self.plot(graphWidget,data[0], [80]*self.taille, "High_Level", 'g')
+            self.plot(graphWidget,data[0], [20]*self.taille, "low_level", 'r')
+            self.labels = labels
+        else:
+            self.data_line_valve = self.plot(graphWidget,data[0], data[1], "Valve", 'b')
         
         return graphWidget
     
-    def plot(self,graphWidget, x, y, plotname, color,labs):
+    def plot(self,graphWidget, x, y, plotname, color):
         pen = pg.mkPen(color=color)
-        return graphWidget.plot(range(0,len(y)),y , name=plotname, pen=pen, symbol='o', symbolSize=30, symbolBrush=(color),labels = labs)
+        return graphWidget.plot(range(0,len(y)),y , name=plotname, pen=pen, symbol='o', symbolSize=30, symbolBrush=(color))
 
     
-    def update_plot_data(self,history):
+    def update_plot_data_level(self,history):
         hist_array = history.split('|')
-        print(self.labels)
-        
+        labels = self.labels
+        lab = ["0"]*self.taille
         for t,hist in enumerate(hist_array):
             if hist == '':
                 break
             part = hist.split('/')
-            self.labels[t] =(t,part[0])
-            self.y[t] = float(part[2])
+            if(t%15==0):
+                labels[t] =(t,part[0][-6:])
+            else:
+                labels[t] =(t,"")
+                
+            lab[t] = part[0]
+            self.y_level[t] = float(part[2])*100
         
-        self.chart.getAxis('bottom').setTicks([self.labels])
+        
+        self.data_line_level.setData(range(0,len(self.y_level)),self.y_level)  # Update the data.$
         
         
-        self.data_line.setData(range(0,len(y)),y)  # Update the data.$
-        self.update_table(labels,y)
+        self.chart_level.getAxis('bottom').setTicks([labels])
+        self.update_table(lab,self.y_level,True)
         
-    def update_table(self,t,y):
-        self.table_view.load_data([t,y])
+    def update_plot_data_valve(self,history):
+        hist_array = history.split('|')
+        labels = self.labels
+        lab = ["0"]*self.taille
+        for t,hist in enumerate(hist_array):
+            if hist == '':
+                break
+            part = hist.split('/')
+            if(t%15==0):
+                labels[t] =(t,part[0][-6:])
+            else:
+                labels[t] =(t,"")
+                
+            lab[t] = part[0]
+            self.y_valve[t] = float(part[2])*100
+        
+        
+        self.data_line_valve.setData(range(0,len(self.y_valve)),self.y_valve)  # Update the data.$
+        
+        
+        self.chart_valve.getAxis('bottom').setTicks([labels])
+        self.update_table(lab,self.y_valve,False)
+        
+        
+    def update_table(self,t,y,level):
+        if level:
+            self.model_level.load_data([t,y])
+            topLeft = self.model_level.index(0, 0)
+            bottomRight = self.model_level.index(self.model_level.rowCount() - 1, self.model_level.columnCount() - 1)
+
+            self.model_level.dataChanged.emit(topLeft, bottomRight);
+        else:
+            self.model_valve.load_data([t,y])
+            topLeft = self.model_valve.index(0, 0)
+            bottomRight = self.model_valve.index(self.model_valve.rowCount() - 1, self.model_valve.columnCount() - 1)
+
+            self.model_valve.dataChanged.emit(topLeft, bottomRight);
+        
         
 
 class ColorMixingPlantWindow(QMainWindow):
