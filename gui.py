@@ -368,8 +368,11 @@ class displayWindow(QMainWindow):
         self.setMinimumSize(1000, 900)
         self._new_window = QWidget()
         self.setCentralWidget(self._new_window)
+        self.
+        self.y = [0]*100
         
-        data = [['0','1','2','3','4','5','6','7','8','9','10'],[0,1,2,3,4,5,6,7,8,9,10]]
+        
+        data = [['0']*100,self.y]
         # Getting the Model
         self.model = CustomTableModel(data)
         
@@ -380,9 +383,9 @@ class displayWindow(QMainWindow):
         
 
         # Creating plotwidget
-        self.chart = self.creat_plot(data)
         self.data_line = None
-        
+        self.labels = None
+        self.chart = self.creat_plot(data)
 
         
         # QTableView Headers
@@ -414,6 +417,8 @@ class displayWindow(QMainWindow):
         # Set the layout to the QWidget
         self._new_window.setLayout(self.main_layout)
         
+        tank.worker.level_history.done.connect(self.update_plot_data)
+        
         
     def creat_plot(self,data):
         graphWidget = pg.PlotWidget()
@@ -426,13 +431,13 @@ class displayWindow(QMainWindow):
         graphWidget.setLabel("left", "Level", **styles)
         graphWidget.setLabel("bottom", "Timestamps", **styles)
         
-        labels = [
+        self.labels = [
             # Generate a list of tuples (x_value, x_label)
             (t, data[0][t])
             for t in range(len(data[0]))
         ]
 
-        graphWidget.getAxis('bottom').setTicks([labels])
+        graphWidget.getAxis('bottom').setTicks([self.labels])
         #Add legend
         graphWidget.addLegend()
         #Add grid
@@ -441,24 +446,37 @@ class displayWindow(QMainWindow):
         graphWidget.setXRange(-5, 105, padding=0)
         graphWidget.setYRange(-5, 105, padding=0)
 
-        self.data_line = self.plot(graphWidget,data[0], data[1], "Level", 'b',labels)
+        self.data_line = self.plot(graphWidget,data[0], data[1], "Level", 'b',self.labels)
+        self.plot(graphWidget,data[0], [80]*100, "High_Level", 'g',self.labels)
+        self.plot(graphWidget,data[0], [20]*100, "low_level", 'r',self.labels)
         
         return graphWidget
     
     def plot(self,graphWidget, x, y, plotname, color,labs):
         pen = pg.mkPen(color=color)
-        graphWidget.plot(range(0,len(y)),y , name=plotname, pen=pen, symbol='o', symbolSize=30, symbolBrush=(color),labels = labs)
+        return graphWidget.plot(range(0,len(y)),y , name=plotname, pen=pen, symbol='o', symbolSize=30, symbolBrush=(color),labels = labs)
 
     
-    def update_plot_data(self):
-
-        self.x = self.x[1:]  # Remove the first y element.
-        self.x.append(self.x[-1] + 1)  # Add a new value 1 higher than the last.
-
-        self.y = self.y[1:]  # Remove the first
-        self.y.append( randint(0,100))  # Add a new random value.
-
-        self.data_line.setData(self.x, self.y)  # Update the data.
+    def update_plot_data(self,history):
+        hist_array = history.split('|')
+        print(self.labels)
+        
+        for t,hist in enumerate(hist_array):
+            if hist == '':
+                break
+            part = hist.split('/')
+            self.labels[t] =(t,part[0])
+            self.y[t] = float(part[2])
+        
+        self.chart.getAxis('bottom').setTicks([self.labels])
+        
+        
+        self.data_line.setData(range(0,len(y)),y)  # Update the data.$
+        self.update_table(labels,y)
+        
+    def update_table(self,t,y):
+        self.table_view.load_data([t,y])
+        
 
 class ColorMixingPlantWindow(QMainWindow):
     """
@@ -645,8 +663,8 @@ class TangoBackgroundWorker(QThread):
                 self.level.done.emit(data_level.value)
                 self.flow.done.emit(data_flow.value)
                 self.alarms.done.emit(data_alarms.value)
-                self.level_history.done.emit(data_level_history)
-                self.valve_history.done.emit(data_valve_history)
+                self.level_history.done.emit(data_level_history.value)
+                self.valve_history.done.emit(data_valve_history.value)
             except Exception as e:
                 print("Error reading from the device: %s" % e)
             # wait for next round
