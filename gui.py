@@ -3,11 +3,14 @@ import time
 import signal
 import logging
 
-from PyQt5.QtWidgets import QApplication, QWidget, QSlider, QHBoxLayout, QVBoxLayout, QLabel, QMainWindow, QPushButton, QTextEdit
-from PyQt5.QtCore import Qt, QThread, QRunnable, pyqtSlot, QThreadPool, QObject, pyqtSignal, QRect
+from PyQt5.QtWidgets import QApplication, QWidget, QSlider, QHBoxLayout, QVBoxLayout, QLabel, QMainWindow, QPushButton, QTextEdit,QAction, QHeaderView, QSizePolicy, QTableView
+from PyQt5.QtCore import Qt, QThread, QRunnable, pyqtSlot, QThreadPool, QObject, pyqtSignal, QRect,QAbstractTableModel, QDateTime, QModelIndex,QTimeZone
 from PyQt5.QtGui import QPainter, QColor, QPen
+from PySide2.QtCharts import QtCharts
 
 from tango import AttributeProxy, DeviceProxy
+from pyqtgraph import PlotWidget, plot
+import pyqtgraph as pg
 
 # prefix for all Tango device names
 TANGO_NAME_PREFIX = "epfl/station1"
@@ -123,9 +126,11 @@ class ErrorWindowWidget(QWidget):
         self.editor.setMinimumSize(width, 400)
         self.update()
         self.layout.addWidget(self.editor)
-        
-        for key in self.tanks:
-            tanks[key].worker.alarms.done.connect(self.get_alarm)
+        if type(tanks) == dict:
+            for key in self.tanks:
+                tanks[key].worker.alarms.done.connect(self.get_alarm)
+        else:
+            tanks.worker.alarms.done.connect(self.get_alarm)
         
         self.setLayout(self.layout)
         
@@ -154,10 +159,9 @@ class ErrorWindowWidget(QWidget):
             if alarm =='':
                 break
             part = alarm.split('/')
-            try: 
-                if self.history[(part[1],part[3])]:
-                    break
-            except:
+            if (part[1],part[3]) in self.history.keys():
+                    continue
+            else:
                 c = True
                 self.history[(part[1],part[3])] = True
             
@@ -174,7 +178,16 @@ class ErrorWindowWidget(QWidget):
                 
 
         
+class SpButton(QPushButton):
+    send = pyqtSignal(str)
     
+    def __init__(self,name,parent,parent_name):
+        super().__init__(name,parent)
+        self.parent_name = parent_name
+        self.clicked.connect(self.sendSender)
+                
+    def sendSender(self):
+        self.send.emit(self.parent_name)
         
         
         
@@ -196,13 +209,16 @@ class PaintTankWidget(QWidget):
         self.worker.level.done.connect(self.setLevel)
         self.worker.flow.done.connect(self.setFlow)
         self.worker.color.done.connect(self.setColor)
+        self.button = SpButton('Detail', self,name)
+        self.button.setToolTip('Show the detailed view of the tank')
 
         if fill_button:
             button = QPushButton('Fill', self)
             button.setToolTip('Fill up the tank with paint')
             button.clicked.connect(self.on_fill)
             self.layout.addWidget(button)
-
+            
+        self.layout.addWidget(self.button)
         # label for level
         self.label_level = QLabel("Level: --")
         self.label_level.setAlignment(Qt.AlignCenter)
@@ -303,12 +319,146 @@ class PaintTankWidget(QWidget):
         self.threadpool.start(worker)
         
 
+class CustomTableModel(QAbstractTableModel):
+    def __init__(self, data=None):
+        QAbstractTableModel.__init__(self)
+        self.load_data(data)
+        
+    def load_data(self, data):
+        self.input_dates = data[0]
+        self.input_magnitudes = data[1]
+
+        self.column_count = 2
+        self.row_count = len(self.input_magnitudes)
+        
+    def rowCount(self, parent=QModelIndex()):
+        return self.row_count
+
+    def columnCount(self, parent=QModelIndex()):
+        return self.column_count
+
+    def headerData(self, section, orientation, role):
+        if role != Qt.DisplayRole:
+            return None
+        if orientation == Qt.Horizontal:
+            return ("Timestamp", "Level")[section]
+        else:
+            return "{}".format(section)
+        
+    def data(self, index, role = Qt.DisplayRole):
+        column = index.column()
+        row = index.row()
+        if role == Qt.DisplayRole:
+            if column == 0:
+                raw_date = self.input_dates[row]
+                return raw_date
+            elif column == 1:
+                return self.input_magnitudes[row]
+        elif role == Qt.BackgroundRole:
+            return QColor(Qt.white)
+        elif role == Qt.TextAlignmentRole:
+            return Qt.AlignRight
+        return None
+    
+    
 class displayWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self,tank):
         super(QWidget,self).__init__()
-        self._new_window = None
-        self._label = QLabel('Hello, is it me you\'re looking for?')
-        self.setCentralWidget(self._label)
+        self.setWindowTitle("Color Mixing Plant Simulator tank"+tank.name)
+        self.setMinimumSize(1000, 900)
+        self._new_window = QWidget()
+        self.setCentralWidget(self._new_window)
+        
+        data = [['0','1','2','3','4','5','6','7','8','9','10'],[0,1,2,3,4,5,6,7,8,9,10]]
+        # Getting the Model
+        self.model = CustomTableModel(data)
+        
+        #creating the table
+        self.table_view = QTableView()
+        self.table_view.setModel(self.model)
+        
+        
+
+        # Creating plotwidget
+        self.chart = self.creat_plot(data)
+        self.data_line = None
+        
+
+        
+        # QTableView Headers
+        self.horizontal_header = self.table_view.horizontalHeader()
+        self.vertical_header = self.table_view.verticalHeader()
+        self.horizontal_header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.vertical_header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.horizontal_header.setStretchLastSection(True)
+        
+        # QWidget Layout
+        self.main_layout = QHBoxLayout()
+        size = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        
+        ## Left layout
+        size.setHorizontalStretch(3)
+        self.table_view.setSizePolicy(size)
+        self.main_layout.addWidget(self.table_view)
+        
+        ## Right Layout
+        size.setHorizontalStretch(3)
+        self.chart.setSizePolicy(size)
+        self.main_layout.addWidget(self.chart)
+        
+        
+        self.error_log = ErrorWindowWidget("Error", 600,tank)
+        
+        self.main_layout.addWidget(self.error_log)
+        
+        # Set the layout to the QWidget
+        self._new_window.setLayout(self.main_layout)
+        
+        
+    def creat_plot(self,data):
+        graphWidget = pg.PlotWidget()
+        #Add Background colour to white
+        graphWidget.setBackground('w')
+        # Add Title
+        graphWidget.setTitle("Level", color="b", size="30pt")
+         # Add Axis Labels
+        styles = {"color": "#f00", "font-size": "20px"}
+        graphWidget.setLabel("left", "Level", **styles)
+        graphWidget.setLabel("bottom", "Timestamps", **styles)
+        
+        labels = [
+            # Generate a list of tuples (x_value, x_label)
+            (t, data[0][t])
+            for t in range(len(data[0]))
+        ]
+
+        graphWidget.getAxis('bottom').setTicks([labels])
+        #Add legend
+        graphWidget.addLegend()
+        #Add grid
+        graphWidget.showGrid(x=True, y=True)
+        #Set Range
+        graphWidget.setXRange(-5, 105, padding=0)
+        graphWidget.setYRange(-5, 105, padding=0)
+
+        self.data_line = self.plot(graphWidget,data[0], data[1], "Level", 'b',labels)
+        
+        return graphWidget
+    
+    def plot(self,graphWidget, x, y, plotname, color,labs):
+        pen = pg.mkPen(color=color)
+        graphWidget.plot(range(0,len(y)),y , name=plotname, pen=pen, symbol='o', symbolSize=30, symbolBrush=(color),labels = labs)
+
+    
+    def update_plot_data(self):
+
+        self.x = self.x[1:]  # Remove the first y element.
+        self.x.append(self.x[-1] + 1)  # Add a new value 1 higher than the last.
+
+        self.y = self.y[1:]  # Remove the first
+        self.y.append( randint(0,100))  # Add a new random value.
+
+        self.data_line.setData(self.x, self.y)  # Update the data.
 
 class ColorMixingPlantWindow(QMainWindow):
     """
@@ -347,6 +497,9 @@ class ColorMixingPlantWindow(QMainWindow):
         #self.error_log.setWorker(self.tanks["cyan"].worker)
         
         hbox.addWidget(self.error_log)
+        
+        for keys in self.tanks:
+            self.tanks[keys].button.send.connect(self.create_new_window)
 
         vbox.addLayout(hbox)
 
@@ -356,8 +509,8 @@ class ColorMixingPlantWindow(QMainWindow):
         
     
         # show the UI
-    def create_new_window(self):
-        self._new_window = displayWindow()
+    def create_new_window(self,tank_name):
+        self._new_window = displayWindow(self.tanks[tank_name])
         self._new_window.show()
 
 
@@ -510,7 +663,5 @@ if __name__ == '__main__':
     
     # show the UI
     ui.show()
-    ui.create_new_window()
-    ui._new_window.show()
     # start the QT application (blocking until UI exits)
     app.exec_()
