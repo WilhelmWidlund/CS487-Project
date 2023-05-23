@@ -101,22 +101,23 @@ class TankWidget(QWidget):
 
 
 class ErrorWindowWidget(QWidget):
-    "Widget to show event and error"
-   
-    
-    def __init__(self,name,width,tanks):
+    """
+    Widget to show alarms and events
+    """
+
+    def __init__(self,name, width, tanks):
         super().__init__()
         self.name = name
         self.setGeometry(0, 0, width, 400)
         self.setMinimumSize(width, 400)
         self.layout = QVBoxLayout()
-        self.logs = [["TimeStamp","TANK","MESSAGE",'0']]
+        self.log_legend = ["Time", "Tank", "Description"]
+        self.logs = {}
+        self.previous_logs = {}
         self.tanks = tanks
         self.label_edit = QLabel(name)
         self.label_edit.setAlignment(Qt.AlignHCenter)
-        self.layout.addWidget(self.label_edit )
-        self.history = {}
-        
+        self.layout.addWidget(self.label_edit)
         self.editor = QTextEdit("")
         self.editor.setAlignment(Qt.AlignCenter)
         self.editor.setReadOnly(True)
@@ -129,56 +130,52 @@ class ErrorWindowWidget(QWidget):
         
         self.setLayout(self.layout)
         
-        
-        
-        
     def update(self):
-        
+        """
+        Updates the error widget entries
+        """
+        sorted_full_log = {'0': [self.log_legend]}
+        for tank in self.logs:
+            for log in self.logs[tank]:
+                if log == ['']:
+                    break
+                if log[3] not in sorted_full_log.keys():
+                    sorted_full_log[log[3]] = [log]
+                else:
+                    sorted_full_log[log[3]].append(log)
         string = """<table style="width : 100%;border: 1px solid;border-spacing: 0;margin-bottom: 5px;border-collapse: collapse;">
         <tbody style = "display: table-row-group;vertical-align: middle;">"""
-        for log in self.logs:
-            string+="""<tr style = "display: table-row;vertical-align: inherit;width : 100%;">
-            <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 3px 5px 3px 10px;">{}</td>
-            <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 3px 5px 3px 10px;">{}</td>
-            <td style = "width :100%;border: 1px solid;display: table-cell;padding: 5px 40%;">{}</td></tr>""".format(log[0],log[1],log[2])
-            
+        for prio in sorted(sorted_full_log):
+            for log in sorted_full_log[prio]:
+                string += """<tr style = "display: table-row;vertical-align: inherit;width : 100%;">
+                <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 3px 5px 3px 10px;">{}</td>
+                <td style = "border: 1px solid;display: table-cell;vertical-align: inherit;padding: 3px 5px 3px 10px;">{}</td>
+                <td style = "width :100%;border: 1px solid;display: table-cell;padding: 5px 40%;">{}</td></tr>""".format(log[0], log[1], log[2])
         string += " </tr> </tbody> </table>"
         self.editor.setHtml(string)
-        
 
     #@pyqtSlot()
-    def get_alarm(self,alarms):
+    def get_alarm(self, alarms):
+        """
+        Formats alarms that have been changed, and displays them in the widget by finishing by calling self.update()
+        """
         alarm_array = alarms.split('|')
-        c= False
+        current_tank = alarm_array[0].split('/')[1]
+        current_tank_alarms = []
         for alarm in alarm_array:
-            if alarm =='':
+            if alarm == "EMPTY/" + current_tank:
+                # Empty alarm: move on
                 break
             part = alarm.split('/')
-            try: 
-                if self.history[(part[1],part[3])]:
-                    break
-            except:
-                c = True
-                self.history[(part[1],part[3])] = True
-            
-            b = False
-            for i,log in enumerate(self.logs):
-                if log[3]>part[3]:
-                    self.logs.insert(i,part[0:4])
-                    b = True
-                    break
-            if not b:
-                self.logs.append(part[0:4])
-        if c :
+            current_tank_alarms.append(part)
+        # Store old logs
+        if current_tank in self.logs:
+            self.previous_logs[current_tank] = self.logs[current_tank]
+        # Update logs
+        self.logs[current_tank] = current_tank_alarms
+        # Check if self.logs has changed, triggering an update
+        if self.previous_logs != self.logs:
             self.update()
-                
-
-        
-    
-        
-        
-        
-
 
 class PaintTankWidget(QWidget):
     """
@@ -343,7 +340,7 @@ class ColorMixingPlantWindow(QMainWindow):
         hbox.addWidget(self.tanks["black"])
         hbox.addWidget(self.tanks["white"])
         
-        self.error_log = ErrorWindowWidget("Error", 150,self.tanks)
+        self.error_log = ErrorWindowWidget("Error", 600, self.tanks)
         #self.error_log.setWorker(self.tanks["cyan"].worker)
         
         hbox.addWidget(self.error_log)
@@ -353,8 +350,7 @@ class ColorMixingPlantWindow(QMainWindow):
         vbox.addWidget(self.tanks["mixer"])
 
         self.window.setLayout(vbox)
-        
-    
+
         # show the UI
     def create_new_window(self):
         self._new_window = displayWindow()
@@ -491,7 +487,11 @@ class TangoBackgroundWorker(QThread):
                 self.color.done.emit(data_color.value)
                 self.level.done.emit(data_level.value)
                 self.flow.done.emit(data_flow.value)
-                self.alarms.done.emit(data_alarms.value)
+                # Send an identifying string in case of empty alarm list
+                if data_alarms.value == "":
+                    self.alarms.done.emit("EMPTY/" + self.name + "|")
+                else:
+                    self.alarms.done.emit(data_alarms.value)
                 self.level_history.done.emit(data_level_history)
                 self.valve_history.done.emit(data_valve_history)
             except Exception as e:
