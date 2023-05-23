@@ -480,7 +480,7 @@ class displayWindow(QMainWindow):
             self.plot(graphWidget,data[0], [20]*self.taille, "low_level", 'r')
             self.labels = labels
         else:
-            self.data_line_valve = self.plot(graphWidget,data[0], data[1], "Valve", 'b')
+            self.data_line_valve = self.plot(graphWidget,data[0], data[1], "Valve", 'k')
         
         return graphWidget
     
