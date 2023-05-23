@@ -18,6 +18,8 @@ TANGO_ATTRIBUTE_VALVE = "valve"
 TANGO_ATTRIBUTE_FLOW = "flow"
 TANGO_ATTRIBUTE_COLOR = "color"
 TANGO_ATTRIBUTE_ALARMS = "alarms"
+TANGO_ATTRIBUTE_LEVEL_HISTORY = "level_history"
+TANGO_ATTRIBUTE_VALVE_HISTORY = "valve_history"
 TANGO_COMMAND_FILL = "Fill"
 TANGO_COMMAND_FLUSH = "Flush"
 
@@ -143,6 +145,7 @@ class ErrorWindowWidget(QWidget):
         string += " </tr> </tbody> </table>"
         self.editor.setHtml(string)
         
+
     #@pyqtSlot()
     def get_alarm(self,alarms):
         alarm_array = alarms.split('|')
@@ -169,7 +172,11 @@ class ErrorWindowWidget(QWidget):
         if c :
             self.update()
                 
-                    
+
+        
+    
+        
+        
         
 
 
@@ -449,9 +456,9 @@ class TangoBackgroundWorker(QThread):
         self.level = WorkerSignal()
         self.flow = WorkerSignal()
         self.color = WorkerSignal()
-
         self.alarms = WorkerSignal()
-
+        self.level_history = WorkerSignal()
+        self.valve_history = WorkerSignal()
 
     def run(self):
         """
@@ -464,6 +471,8 @@ class TangoBackgroundWorker(QThread):
             flow = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_FLOW))
             color = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_COLOR))
             alarms = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_ALARMS))
+            level_history = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_LEVEL_HISTORY))
+            valve_history = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_VALVE_HISTORY))
         except Exception as e:
             print("Error creating AttributeProxy for %s" % self.name)
             return
@@ -476,11 +485,15 @@ class TangoBackgroundWorker(QThread):
                 data_flow = flow.read()
 
                 data_alarms = alarms.read()
+                data_level_history = level_history.read()
+                data_valve_history = valve_history.read()
                 # signal to UI
                 self.color.done.emit(data_color.value)
                 self.level.done.emit(data_level.value)
                 self.flow.done.emit(data_flow.value)
                 self.alarms.done.emit(data_alarms.value)
+                self.level_history.done.emit(data_level_history)
+                self.valve_history.done.emit(data_valve_history)
             except Exception as e:
                 print("Error reading from the device: %s" % e)
             # wait for next round

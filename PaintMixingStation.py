@@ -83,15 +83,26 @@ class PaintTank(Device):
         """
         return self.tank.get_vh_readout()
 
-    # TODO: figure out how to return the entire dictionary. Specifically, what should be at dtype=...?
-    #  Then, that could be accessed in the GUI
     @attribute(dtype=str)
     def alarms(self):
         """
         Get all the current alarms
         """
-        #return self.tank.get_alarms()
         return self.tank.get_alarms()
+
+    @attribute(dtype=str)
+    def level_history(self):
+        """
+        Get the level history
+        """
+        return self.tank.get_level_history()
+
+    @attribute(dtype=str)
+    def valve_history(self):
+        """
+        Get the valve history
+        """
+        return self.tank.get_valve_history()
 
     @attribute(dtype=str)
     def color(self):
