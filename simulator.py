@@ -343,7 +343,7 @@ class PaintTank:
         """
         text_alarm = ""
         for keys in self.alarms:
-            text_alarm = text_alarm+ "{}:{}:{}:{}:{}/".format(self.alarms[keys][0],self.alarms[keys][1],self.alarms[keys][2],self.alarms[keys][3],self.alarms[keys][4])+self.name+"/"+self.DEFAULT_ALARM_DEFS[keys]+"|"
+            text_alarm = text_alarm+ "{}:{}:{}:{}:{}/".format(self.alarms[keys][0],self.alarms[keys][1],self.alarms[keys][2],self.alarms[keys][3],self.alarms[keys][4])+self.name+"/"+DEFAULT_ALARM_DEFS[keys]+"/{}|".format(keys)
         return text_alarm
 
     def read_level_sensors(self):

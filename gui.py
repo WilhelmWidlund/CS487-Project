@@ -6,6 +6,7 @@ import logging
 from PyQt5.QtWidgets import QApplication, QWidget, QSlider, QHBoxLayout, QVBoxLayout, QLabel, QMainWindow, QPushButton, QTextEdit
 from PyQt5.QtCore import Qt, QThread, QRunnable, pyqtSlot, QThreadPool, QObject, pyqtSignal, QRect
 from PyQt5.QtGui import QPainter, QColor, QPen
+
 from tango import AttributeProxy, DeviceProxy
 
 # prefix for all Tango device names
@@ -101,18 +102,18 @@ class ErrorWindowWidget(QWidget):
     "Widget to show event and error"
    
     
-    def __init__(self,name,width):
+    def __init__(self,name,width,tanks):
         super().__init__()
         self.name = name
         self.setGeometry(0, 0, width, 400)
         self.setMinimumSize(width, 400)
         self.layout = QVBoxLayout()
-        self.worker = None
-        self.logs = [["TimeStamp","TANK","MESSAGE"]]
-        
+        self.logs = [["TimeStamp","TANK","MESSAGE",'0']]
+        self.tanks = tanks
         self.label_edit = QLabel(name)
         self.label_edit.setAlignment(Qt.AlignHCenter)
         self.layout.addWidget(self.label_edit )
+        self.history = {}
         
         self.editor = QTextEdit("")
         self.editor.setAlignment(Qt.AlignCenter)
@@ -121,11 +122,11 @@ class ErrorWindowWidget(QWidget):
         self.update()
         self.layout.addWidget(self.editor)
         
-        button = QPushButton('Update', self)
-        button.clicked.connect(self.update)
-        self.layout.addWidget(button)
+        for key in self.tanks:
+            tanks[key].worker.alarms.done.connect(self.get_alarm)
         
         self.setLayout(self.layout)
+        
         
         
         
@@ -142,41 +143,35 @@ class ErrorWindowWidget(QWidget):
         string += " </tr> </tbody> </table>"
         self.editor.setHtml(string)
         
-    def setWorker(self,worker):
-        self.worker = worker
-        self.worker.alarms.done.connect(self.set_log_cyan)
+    #@pyqtSlot()
+    def get_alarm(self,alarms):
+        alarm_array = alarms.split('|')
+        c= False
+        for alarm in alarm_array:
+            if alarm =='':
+                break
+            part = alarm.split('/')
+            try: 
+                if self.history[(part[1],part[3])]:
+                    break
+            except:
+                c = True
+                self.history[(part[1],part[3])] = True
+            
+            b = False
+            for i,log in enumerate(self.logs):
+                if log[3]>part[3]:
+                    self.logs.insert(i,part[0:4])
+                    b = True
+                    break
+            if not b:
+                self.logs.append(part[0:4])
+        if c :
+            self.update()
+                
+                    
         
-        
-        
-    
-    @pyqtSlot()
-    def set_log_cyan(self,alarms):
-        array_alarm = alarms.split('|')
-        for text in array_alarm:
-            alarm = text.split('/')
-            self.logs.append([alarm[1],alarm[2],alarm[3]])
-    
-        self.update()  
-        
-    @pyqtSlot()
-    def set_log_yellow(self,alarms):
-        for keys, value in alarms:
-                self.logs.append(["{}:{}:{}:{}:{}".format(value[0],value[1],value[2],value[3],value[4],value[5])
-                ,str(tank_i),DEFAULT_ALARM_DEFS[keys]])
-    
-        self.update()  
-        
-    @pyqtSlot()
-    def set_log_magenta(self,alarms):
-        for keys, value in alarms:
-                self.logs.append(["{}:{}:{}:{}:{}".format(value[0],value[1],value[2],value[3],value[4],value[5])
-                ,str(tank_i),DEFAULT_ALARM_DEFS[keys]])
-    
-        self.update()  
-    
-        
-        
-        
+
 
 class PaintTankWidget(QWidget):
     """
@@ -300,8 +295,13 @@ class PaintTankWidget(QWidget):
         worker.signal.done.connect(self.setLevel)
         self.threadpool.start(worker)
         
-    
 
+class displayWindow(QMainWindow):
+    def __init__(self):
+        super(QWidget,self).__init__()
+        self._new_window = None
+        self._label = QLabel('Hello, is it me you\'re looking for?')
+        self.setCentralWidget(self._label)
 
 class ColorMixingPlantWindow(QMainWindow):
     """
@@ -312,6 +312,7 @@ class ColorMixingPlantWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Color Mixing Plant Simulator - EPFL CS-487")
         self.setMinimumSize(900, 800)
+        self._new_window = None
 
         # Create a vertical layout
         vbox = QVBoxLayout()
@@ -335,8 +336,8 @@ class ColorMixingPlantWindow(QMainWindow):
         hbox.addWidget(self.tanks["black"])
         hbox.addWidget(self.tanks["white"])
         
-        self.error_log = ErrorWindowWidget("Error", width=150)
-        self.error_log.setWorker(self.tanks["cyan"].worker)
+        self.error_log = ErrorWindowWidget("Error", 150,self.tanks)
+        #self.error_log.setWorker(self.tanks["cyan"].worker)
         
         hbox.addWidget(self.error_log)
 
@@ -345,6 +346,12 @@ class ColorMixingPlantWindow(QMainWindow):
         vbox.addWidget(self.tanks["mixer"])
 
         self.window.setLayout(vbox)
+        
+    
+        # show the UI
+    def create_new_window(self):
+        self._new_window = displayWindow()
+        self._new_window.show()
 
 
 class WorkerSignal(QObject):
@@ -456,7 +463,6 @@ class TangoBackgroundWorker(QThread):
             level = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_LEVEL))
             flow = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_FLOW))
             color = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_COLOR))
-
             alarms = AttributeProxy("%s/%s/%s" % (TANGO_NAME_PREFIX, self.name, TANGO_ATTRIBUTE_ALARMS))
         except Exception as e:
             print("Error creating AttributeProxy for %s" % self.name)
@@ -477,8 +483,6 @@ class TangoBackgroundWorker(QThread):
                 self.alarms.done.emit(data_alarms.value)
             except Exception as e:
                 print("Error reading from the device: %s" % e)
-            print(data_alarms.value)
-
             # wait for next round
             time.sleep(self.interval)
 
@@ -490,7 +494,10 @@ if __name__ == '__main__':
     # init the QT application and the main window
     app = QApplication(sys.argv)
     ui = ColorMixingPlantWindow()
+    
     # show the UI
     ui.show()
+    ui.create_new_window()
+    ui._new_window.show()
     # start the QT application (blocking until UI exits)
     app.exec_()
