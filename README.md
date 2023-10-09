@@ -12,6 +12,6 @@ The main changes are:
 ![Extended GUI2](/Documentation/detail_window.png)
 
 * Code framework for random failure of components, resulting in simulation of a faulty plant in operation
-* Code framework for detecting component failures via sensor readings, and displaying the resulting alarmsand events in the first GUI extension
+* Code framework for detecting component failures via sensor readings, and displaying the resulting alarms and events in the first GUI extension
 ![Alarms and events](/Documentation/broken_color_and_valve.png)
 In the last image, all paint tank color sensors have failed, as well as the yellow (middle) color tank valve.
